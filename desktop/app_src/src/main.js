@@ -779,7 +779,7 @@ function injectDesktopScriptsModifications(gameWindow) {
       });
 
       var downloadResults = await Promise.allSettled(downloads);
-      logInGameWindow('Finished downloading Ephenia scripts from repository');
+      logInGameWindow('Finished downloading scripts from mithrila/Pokeclicker-Scripts');
 
       // Save checksum data for script update checking
       var updatedChecksums = {};
@@ -928,7 +928,7 @@ function injectDesktopScriptsModifications(gameWindow) {
     runScript(`${__dirname}/scripthandler.js`);
     ensureScriptsDirsExist();
 
-    const repoUrl = 'https://api.github.com/repos/Ephenia/Pokeclicker-Scripts/contents/';
+    const repoUrl = 'https://api.github.com/repos/mithrila/Pokeclicker-Scripts/contents/';
     var repoFiles;
     var localFiles;
     var runningOffline = false;
@@ -960,14 +960,14 @@ function injectDesktopScriptsModifications(gameWindow) {
       .then((data) => {
         repoFiles = repoFiles.concat(data);
         let repoFilenames = repoFiles.map(f => f[0]);
-        logInGameWindow(`Found script files in Ephenia/Pokeclicker-Scripts/ github repository:\n${repoFilenames.join('\n')}`, 'debug');
+        logInGameWindow(`Found script files in mithrila/Pokeclicker-Scripts/ github repository:\n${repoFilenames.join('\n')}`, 'debug');
         let scriptsExecuted = handleScripts(repoFiles);
         disableExtraneousScripts(localFiles, repoFilenames);
         return scriptsExecuted;
       }, (err) => { 
         runningOffline = true;
         logInGameWindow(err, 'warn');
-        logInGameWindow('Could not connect to Ephenia GitHub repository, running scripts offline');
+        logInGameWindow('Could not connect to mithrila/Pokeclicker-Scripts, running scripts offline');
         let scriptsExecutedOffline = [];
         localFiles.forEach((file) => {
           let scriptRan = runEpheniaScript(file);
