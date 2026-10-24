@@ -8,7 +8,7 @@
 // @description   Adds in toggable options to move/catch pokemons/pick up items and have fast animations on both safari zones
 // @copyright     https://github.com/Kanzen01
 // @license       GPL-3.0 License
-// @version       1.2.4
+// @version       1.3.0
 
 // @homepageURL   https://github.com/Ephenia/Pokeclicker-Scripts/
 // @supportURL    https://github.com/Ephenia/Pokeclicker-Scripts/issues
@@ -36,12 +36,13 @@ function initAutoSafari() {
   // To skip targets generated in buggy sections of the grid (theoretically can't happen anymore)
   var forceSkipItems = false;
   var forceSkipShinies = [];
+  var forceSkipPriority = [];
   // To avoid constantly checking the spawn list. -1 for confirmed none, 1 for confirmed some
   var hasPrioritySpawns = 0;
   // Cached encounter tile(s) with highest priority spawn chance
   var cachedPriorityEnvironments = [SafariEnvironments.Grass];
   var mapHasTileType = {};
-  GameHelper.enumNumbers(GameConstants.SafariTile).forEach((tile) => mapHasTileType[tile] = false);
+  var mapScanned = false;
   // To add delay to start of battles to avoid animation issues
   var inBattle = false;
 
@@ -68,6 +69,7 @@ function initAutoSafari() {
     encounters: 1,
     gettingItems: 2,
     seekingShiny: 3,
+    seekingPriority: 4,
   };
 
   const optimalBugContestByHighestRegion = GameHelper.enumNumbers(GameConstants.Region)
@@ -102,10 +104,12 @@ function initAutoSafari() {
     targetCoords.length = 0;
     forceSkipItems = false;
     forceSkipShinies.length = 0;
+    forceSkipPriority.length = 0;
     hasPrioritySpawns = 0;
     inBattle = false;
     stopAfterGameOver = false;
     mapHasTileType = {};
+    mapScanned = false;
     // Interval slightly longer than movement speed (0.25s by default) to avoid graphical glitches
     autoSafariProcessId = setInterval(doSafariTick, tickSpeed());
   }
@@ -144,8 +148,11 @@ function initAutoSafari() {
       if (!Safari.inProgress() && Safari.canPay()) {
         Safari.payEntranceFee();
         forceSkipItems = false;
+        forceSkipPriority.length = 0;
         cachedPath.length = 0;
         hasPrioritySpawns = 0;
+        mapHasTileType = {};
+        mapScanned = false;
       } else {
         toggleAutoSafari();
       }
@@ -165,11 +172,13 @@ function initAutoSafari() {
     // Performs actions within the Safari: picking items, moving
     inBattle = false;
 
-    // Scan map if hasn't happened yet
-    if (Object.keys(mapHasTileType).length === 0) {
+    // Scan once the grid for this safari exists. The tile map used to be prefilled,
+    // which made the empty-object check succeed before any real tiles were recorded.
+    if (!mapScanned && Safari.grid?.length) {
       Safari.grid.forEach(row => row.forEach(tile => {
         mapHasTileType[tile] = true;
       }));
+      mapScanned = true;
     }
 
     // Seek visible shiny spawns
@@ -186,6 +195,21 @@ function initAutoSafari() {
         Safari.pokemonGrid().filter((p) => p.shiny && !forceSkipShinies.includes(p)).forEach((p) => {
           console.log(`autosafarizone: Skipping inaccessible shiny ${p.name} at coordinates (${p.x}, ${p.y}) ${isValidPosition(p.y, p.x) ? `on tile type ${GameConstants.SafariTile[Safari.grid[p.y][p.x]]}` : 'out of bounds'}`);
           forceSkipShinies.push(p);
+        });
+      }
+    }
+    // Seek a visible uncaught or contagious Pokémon (for example Ditto (Magikarp) on grass)
+    else if ((autoSafariSeekUncaught || autoSafariSeekContagious) && Safari.pokemonGrid().some(isVisiblePriority)) {
+      if (scriptState !== SCRIPT_STATES.seekingPriority || !cachedPath?.length || (targetCoords?.length == 2 && !Safari.pokemonGrid().some((p) => isVisiblePriority(p) && p.y == targetCoords[0] && p.x == targetCoords[1]))) {
+        scriptState = SCRIPT_STATES.seekingPriority;
+        [targetCoords, cachedPath] = findShortestPathToPriority();
+      }
+      if (cachedPath?.length) {
+        moveCharacter(cachedPath);
+      } else {
+        Safari.pokemonGrid().filter(isVisiblePriority).forEach((p) => {
+          console.log(`autosafarizone: Skipping inaccessible ${p.name} at coordinates (${p.x}, ${p.y}) ${isValidPosition(p.y, p.x) ? `on tile type ${GameConstants.SafariTile[Safari.grid[p.y][p.x]]}` : 'out of bounds'}`);
+          forceSkipPriority.push(p);
         });
       }
     }
@@ -224,9 +248,22 @@ function initAutoSafari() {
     }
   }
 
+  function isVisiblePriority(pokemon) {
+    if (forceSkipPriority.includes(pokemon)) {
+      return false;
+    }
+    return (autoSafariSeekUncaught && !App.game.party.alreadyCaughtPokemonByName(pokemon.name))
+      || (autoSafariSeekContagious && App.game.party.getPokemonByName(pokemon.name)?.pokerus === GameConstants.Pokerus.Contagious);
+  }
+
   function findShortestPathToShiny() {
     const shinyLocations = new Set(Safari.pokemonGrid().filter((p) => p.shiny).map(({ x, y }) => `${y}-${x}`));
     return findShortestPathToTiles((row, col) => (shinyLocations.has(`${row}-${col}`)));
+  }
+
+  function findShortestPathToPriority() {
+    const priorityLocations = new Set(Safari.pokemonGrid().filter(isVisiblePriority).map(({ x, y }) => `${y}-${x}`));
+    return findShortestPathToTiles((row, col) => (priorityLocations.has(`${row}-${col}`)));
   }
 
   function findShortestPathToItems() {
@@ -379,7 +416,8 @@ function initAutoSafari() {
 
   function fightSafariPokemon() {
     // TODO skip ticks proportional to animation speed
-    const forceRunAway = !SafariBattle.enemy.shiny && (scriptState !== SCRIPT_STATES.encounters
+    const seekingEncounter = scriptState === SCRIPT_STATES.encounters || scriptState === SCRIPT_STATES.seekingPriority;
+    const forceRunAway = !SafariBattle.enemy.shiny && (!seekingEncounter
         || (Safari.balls() == 1 && autoSafariPickItemsState && Safari.itemGrid().length > 0 && !forceSkipItems));
     const isPriority = (autoSafariSeekUncaught && !App.game.party.alreadyCaughtPokemon(SafariBattle.enemy.id))
         || (autoSafariSeekContagious && App.game.party.getPokemon(SafariBattle.enemy.id)?.pokerus === GameConstants.Pokerus.Contagious);
@@ -401,18 +439,18 @@ function initAutoSafari() {
 
     // Handle shiny encounters specially
     if (SafariBattle.enemy.shiny) {
-      let canNanab = App.game.farming.berryList[BerryType.Nanab]() > 5;
-      let canRazz = App.game.farming.berryList[BerryType.Razz]() > 5;
+      let canRazz = App.game.farming.berryInventory[BerryType.Razz]() > 5;
+      let canNanab = App.game.farming.berryInventory[BerryType.Nanab]() > 5;
       // Bait is usually the best approach
       if (!(SafariBattle.enemy.angry || SafariBattle.enemy.eating || SafariBattle.enemy.eatingBait !== BaitType.Bait)) {
-        // Nanab is highest catch chance, though not highest catch-per-ball efficiency
-        if (canNanab) {
-          SafariBattle.selectedBait(BaitList.Nanab);
+        // Razz raises catch chance
+        if (canRazz) {
+          SafariBattle.selectedBait(BaitList.Razz);
           SafariBattle.throwBait();
         }
-        // Razz is second best
-        else if (canRazz) {
-          SafariBattle.selectedBait(BaitList.Razz);
+        // Nanab lowers escape chance
+        else if (canNanab) {
+          SafariBattle.selectedBait(BaitList.Nanab);
           SafariBattle.throwBait();
         }
         // Bait is still alright if we have plenty of balls left
@@ -451,14 +489,13 @@ function initAutoSafari() {
       // (SafariBattle.enemy.eatingBait defaults to BaitType.Bait even before feeding)
       if (autoSafariThrowBaitsState && isPriority && !(SafariBattle.enemy.eating || SafariBattle.enemy.eatingBait !== BaitType.Bait)) {
         SafariBattle.selectedBait(BaitList.Bait);
-        // Nanab into rock is best combo of catch chance and efficient ball use
-        // Don't waste Nanabs if they won't improve catch rate over just rocks
-        if (App.game.farming.berryList[BerryType.Nanab]() > 25 && SafariBattle.enemy.catchFactor < 100 / (2 + SafariBattle.enemy.levelModifier)) {
-          SafariBattle.selectedBait(BaitList.Nanab);
-        }
-        // Razz into rock is second best
-        else if (App.game.farming.berryList[BerryType.Razz]() > 25) {
+        // Razz into rock is the catch combo. Don't spend a Razz if a rock alone would already cap catch.
+        if (App.game.farming.berryInventory[BerryType.Razz]() > 25 && SafariBattle.enemy.catchFactor < 100 / (2 + SafariBattle.enemy.levelModifier)) {
           SafariBattle.selectedBait(BaitList.Razz);
+        }
+        // Nanab lowers escape and is the fallback
+        else if (App.game.farming.berryInventory[BerryType.Nanab]() > 25) {
+          SafariBattle.selectedBait(BaitList.Nanab);
         }
         // Use berry if one was selected
         if (SafariBattle.selectedBait() != BaitList.Bait) {

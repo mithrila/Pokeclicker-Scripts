@@ -5,7 +5,7 @@
 // @description   Adds options to automatically plant, harvest, replant, and remulch. Unlike harvesting, replanting only harvests berries right before they wither, to maximize any auras. Make sure the correct berry is selected before auto planting; the script will save your selection across restarts. Auto replant and mulch maintain the berry/mulch already in each plot.
 // @copyright     https://github.com/Ephenia
 // @license       GPL-3.0 License
-// @version       1.7.3
+// @version       1.7.4
 
 // @homepageURL   https://github.com/Ephenia/Pokeclicker-Scripts/
 // @supportURL    https://github.com/Ephenia/Pokeclicker-Scripts/issues
@@ -174,7 +174,6 @@ function initAutoFarm() {
     }
 
     function doReplant() {
-        const berryData = App.game.farming.berryData;
         // Check each tile
         for (let i = 0; i < 25; i++) {
             let plot = App.game.farming.plotList[i];
@@ -185,7 +184,7 @@ function initAutoFarm() {
                     App.game.farming.harvest(i, false);
                     continue;
                 }
-                var timeLeft = berryData[berry].growthTime[4] - plot.age;
+                var timeLeft = plot.berryData.growthTime[4] - plot.age;
                 timeLeft /= (App.game.farming.getGrowthMultiplier() * plot.getGrowthMultiplier());
                 if (timeLeft < 10) {
                     App.game.farming.harvest(i, false);

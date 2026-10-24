@@ -5,7 +5,7 @@
 // @description   Automatically hatches eggs at 100% completion. Adds an On/Off button for auto hatching as well as an option for automatically hatching store bought eggs and dug up fossils.
 // @copyright     https://github.com/Ephenia
 // @license       GPL-3.0 License
-// @version       3.1.4
+// @version       3.2.0
 
 // @homepageURL   https://github.com/Ephenia/Pokeclicker-Scripts/
 // @supportURL    https://github.com/Ephenia/Pokeclicker-Scripts/issues
@@ -28,32 +28,42 @@ var numMonsWithPkrsCached;
 var autoHatcheryCachedList = [];
 var hatchesSinceFilteredHatchery = 0;
 
+function createHatcheryButton(id, label, on) {
+    const button = document.createElement('button');
+    button.id = id;
+    button.type = 'button';
+    button.className = `btn btn-${on ? 'success' : 'danger'}`;
+    button.textContent = label;
+    return button;
+}
+
 function initAutoHatch() {
     const breedingDisplay = document.getElementById('breedingDisplay');
-    const breedingModal = document.getElementById('breedingModal');
+    const hatchButton = createHatcheryButton('auto-hatch-start', `Auto Hatch [${hatchState ? 'ON' : 'OFF'}]`, hatchState);
+    hatchButton.classList.add('btn-sm');
+    hatchButton.style.cssText = 'position: absolute; left: 0px; top: 0px; width: 65px; height: 41px; font-size: 7pt;';
+    breedingDisplay?.prepend(hatchButton);
 
-    breedingDisplay.querySelector('.card-header').outerHTML += `<button id= "auto-hatch-start" class="btn btn-sm btn-${hatchState ? 'success' : 'danger'}" style="position: absolute;left: 0px;top: 0px;width: 65px;height: 41px;font-size: 7pt;">
-    Auto Hatch [${hatchState ? 'ON' : 'OFF'}]
-    </button>`
+    const modalButtons = document.createElement('div');
+    modalButtons.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; padding: 8px;';
+    modalButtons.append(
+        createHatcheryButton('pkrs-mode', `PKRS Mode [${pkrsState ? 'ON' : 'OFF'}]`, pkrsState),
+        createHatcheryButton('auto-egg', `Auto Egg [${eggState ? 'ON' : 'OFF'}]`, eggState),
+        createHatcheryButton('auto-fossil', `Auto Fossil [${fossilState ? 'ON' : 'OFF'}]`, fossilState),
+        createHatcheryButton('shiny-fossils', `Shiny Fossils [${shinyFossilState ? 'ON' : 'OFF'}]`, shinyFossilState),
+    );
+    const fireAll = document.getElementById('breeding-fireall');
+    if (fireAll) {
+        fireAll.after(modalButtons);
+    } else {
+        document.querySelector('#breedingModal .modal-header')?.append(modalButtons);
+    }
 
-    breedingModal.querySelector('.modal-header').querySelectorAll('button')[1].outerHTML += `<button id="pkrs-mode" class="btn btn-${pkrsState ? 'success' : 'danger'}" style="margin-left:20px;">
-    PKRS Mode [${pkrsState ? 'ON' : 'OFF'}]
-    </button>
-    <button id="auto-egg" class="btn btn-${eggState ? 'success' : 'danger'}" style="margin-left:20px;">
-    Auto Egg [${eggState ? 'ON' : 'OFF'}]
-    </button>
-    <button id="auto-fossil" class="btn btn-${fossilState ? 'success' : 'danger'}" style="margin-left:20px;">
-    Auto Fossil [${fossilState ? 'ON' : 'OFF'}]
-    </button>
-    <button id="shiny-fossils" class="btn btn-${shinyFossilState ? 'success' : 'danger'}" style="margin-left:20px;">
-    Shiny Fossils [${shinyFossilState ? 'ON' : 'OFF'}]
-    </button>`;
-
-    document.getElementById('auto-hatch-start').addEventListener('click', event => { toggleAutoHatch(event); });
-    document.getElementById('auto-egg').addEventListener('click', event => { toggleEgg(event); });
-    document.getElementById('auto-fossil').addEventListener('click', event => { toggleFossil(event); });
-    document.getElementById('shiny-fossils').addEventListener('click', event => { toggleShinyFossil(event); });
-    document.getElementById('pkrs-mode').addEventListener('click', event => { togglePKRS(event); });
+    document.getElementById('auto-hatch-start')?.addEventListener('click', event => { toggleAutoHatch(event); });
+    document.getElementById('auto-egg')?.addEventListener('click', event => { toggleEgg(event); });
+    document.getElementById('auto-fossil')?.addEventListener('click', event => { toggleFossil(event); });
+    document.getElementById('shiny-fossils')?.addEventListener('click', event => { toggleShinyFossil(event); });
+    document.getElementById('pkrs-mode')?.addEventListener('click', event => { togglePKRS(event); });
 
     addGlobalStyle('.eggSlot.disabled { pointer-events: unset !important; }');
 
@@ -235,25 +245,47 @@ function autoHatchEgg() {
     return ItemList[eggToUse].use();
 }
 
+const FOSSIL_REVIVE_SHOPS = [
+    'FossilCinnabarLab',
+    'FossilDevonCorporation',
+    'FossilOreburghMiningMuseum',
+    'FossilNacreneMuseum',
+    'FossilAmbretteFossilLab',
+    'FossilMasterGalarRoute6',
+];
+
 function autoHatchFossil() {
-    // Fossils in inventory with amount > 0 
-    let fossilList = UndergroundItems.list.filter(it => it.valueType === UndergroundItemValueType.Fossil && player.itemList[it.itemName]() > 0);
-    if (fossilList.length == 0) {
+    const candidates = [];
+    for (const shopId of FOSSIL_REVIVE_SHOPS) {
+        const deals = ko.unwrap(GenericDeal.list[shopId]) || [];
+        deals.forEach((deal, index) => {
+            if (!GenericDeal.canUse(shopId, index)) {
+                return;
+            }
+            const itemCosts = (deal.costs || []).filter(cost => cost.type === DealCostOrProfitType.Item);
+            // The 10-fossil trades revive the evolution. Single revives cost one fossil, or two Galar fossil pieces.
+            if (!itemCosts.length || itemCosts.some(cost => cost.amount >= 10)) {
+                return;
+            }
+            const profit = (deal.profits || []).find(entry => entry.type === DealCostOrProfitType.Item);
+            if (!profit) {
+                return;
+            }
+            const caughtStatus = PartyController.getCaughtStatusByName(profit.item.name);
+            const preferred = caughtStatus == CaughtStatus.NotCaught || (shinyFossilState && caughtStatus == CaughtStatus.Caught);
+            candidates.push({ shopId, index, itemCosts, preferred });
+        });
+    }
+    const preferred = candidates.filter(candidate => candidate.preferred);
+    const pool = preferred.length ? preferred : candidates;
+    if (!pool.length) {
         return false;
     }
-    let priorityList = fossilList.filter(f => { 
-        const caughtStatus = PartyController.getCaughtStatusByName(GameConstants.FossilToPokemon[f.name]);
-        return caughtStatus == CaughtStatus.NotCaught || (shinyFossilState && caughtStatus == CaughtStatus.Caught);
-    });
-    if (priorityList.length) {
-        fossilList = priorityList;
-    }
-    let fossilToUse = fossilList[Math.floor(Math.random() * fossilList.length)];
-    // Workaround as sellMineItem returns null
-    let before = player.amountOfItem(fossilToUse.itemName)
-    UndergroundController.sellMineItem(fossilToUse);
-    let after = player.amountOfItem(fossilToUse.itemName);
-    return before > after;
+    const choice = pool[Math.floor(Math.random() * pool.length)];
+    const owned = (costs) => costs.reduce((sum, cost) => sum + player.itemList[cost.item.name](), 0);
+    const before = owned(choice.itemCosts);
+    GenericDeal.use(choice.shopId, choice.index, 1);
+    return owned(choice.itemCosts) < before;
 }
 
 function autoHatchMon() {

@@ -5,7 +5,7 @@
 // @description   Adds in toggable options to have seasonal events infinitely run. Events can also run simultaneously with one another. Includes a custom event as well.
 // @copyright     https://github.com/Ephenia
 // @license       GPL-3.0 License
-// @version       1.3.3
+// @version       1.4.0
 
 // @homepageURL   https://github.com/Ephenia/Pokeclicker-Scripts/
 // @supportURL    https://github.com/Ephenia/Pokeclicker-Scripts/issues
@@ -22,7 +22,7 @@ var activeSeasonalEvents = {};
 
 //Removed setTimeout, opted to make it load like the other scrips, also helps with notifications
 function initEvents() {
-    const NUM_EVENTS = 10;
+    const NUM_EVENTS = 11;
     const startDate = new Date(new Date().getFullYear(), -1);
     const endDate = new Date(new Date().getFullYear(), 10000);
 
@@ -121,6 +121,18 @@ function initEvents() {
                 <img src="assets/images/pokemon/7.01.png">
                 </div><hr>`
                 break
+            case "A Pirate's Life": {
+                const pirateSprites = ['Captain Charizard', 'Magikarp (Pirate)', 'Captain Hoopa', 'Zorua (Pirate)']
+                    .map(name => pokemonMap[name]?.id)
+                    .filter(id => id != null)
+                    .map(id => `<img src="assets/images/pokemon/${id}.png">`)
+                    .join('\n');
+                modalBody.innerHTML +=
+                    `<div id="event-${title}" class="event-select" data-value="${title}"><b>${title}</b><br>${description}<br>
+                ${pirateSprites}
+                </div><hr>`
+                break
+            }
             case "Halloween!":
                 modalBody.innerHTML +=
                     `<div id="event-${title}" class="event-select" data-value="${title}"><b>${title}</b><br>${description}<br>
